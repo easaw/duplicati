@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Duplicati.Library.Common;
 using Duplicati.Library.Interface;
 using NUnit.Framework;
 
@@ -25,20 +26,10 @@ namespace Duplicati.UnitTest
 {
     public class RunScriptTests : BasicSetupHelper
     {
-        public override void PrepareSourceData()
-        {
-            base.PrepareSourceData();
-
-            Directory.CreateDirectory(DATAFOLDER);
-            Directory.CreateDirectory(TARGETFOLDER);
-        }
-
         [Test]
         [Category("Border")]
         public void RunScriptBefore()
         {
-            PrepareSourceData();
-
             var blocksize = 10 * 1024;
             var options = TestOptions;
             options["blocksize"] = blocksize.ToString() + "b";
@@ -52,6 +43,8 @@ namespace Duplicati.UnitTest
             using (var c = new Library.Main.Controller("file://" + TARGETFOLDER, options, null))
             {
                 var res = c.Backup(new string[] { DATAFOLDER });
+                Assert.AreEqual(0, res.Errors.Count());
+                Assert.AreEqual(0, res.Warnings.Count());
                 if (res.ParsedResult != ParsedResultType.Success)
                     throw new Exception("Unexpected result from base backup");
                 
@@ -158,7 +151,7 @@ namespace Duplicati.UnitTest
         private string CreateScript(int exitcode, string stderr = null, string stdout = null, int sleeptime = 0)
         {
             var id = Guid.NewGuid().ToString("N").Substring(0, 6);
-            if (Library.Utility.Utility.IsClientWindows)
+            if (Platform.IsClientWindows)
             {
                 var commands = new List<string>();
                 if (!string.IsNullOrWhiteSpace(stdout))

@@ -19,6 +19,8 @@ using CoCoL;
 using System.Threading.Tasks;
 using System.IO;
 using System.Collections.Generic;
+using System.Security.Principal;
+using System.Threading;
 using Duplicati.Library.Interface;
 using Duplicati.Library.Main.Operation.Common;
 using Duplicati.Library.Snapshots;
@@ -38,6 +40,10 @@ namespace Duplicati.Library.Main.Operation.Backup
             // From input
             public string Path;
 
+            // Split
+            public long PathPrefixID;
+            public string Filename;
+
             // From database
             public long OldId;
             public DateTime OldModified;
@@ -54,7 +60,7 @@ namespace Duplicati.Library.Main.Operation.Backup
             public bool MetadataChanged;
         }
             
-        public static Task Run(Snapshots.ISnapshotService snapshot, Options options, BackupDatabase database, long lastfilesetid)
+        public static Task Run(Snapshots.ISnapshotService snapshot, Options options, BackupDatabase database, long lastfilesetid, CancellationToken token)
         {
             return AutomationExtensions.RunTask(new
             {
@@ -66,6 +72,7 @@ namespace Duplicati.Library.Main.Operation.Backup
             async self =>
             {
                 var emptymetadata = Utility.WrapMetadata(new Dictionary<string, string>(), options);
+                var prevprefix = new KeyValuePair<string, long>(null, -1);
 
                 var CHECKFILETIMEONLY = options.CheckFiletimeOnly;
                 var DISABLEFILETIMECHECK = options.DisableFiletimeCheck;
@@ -99,26 +106,43 @@ namespace Duplicati.Library.Main.Operation.Backup
                     {
                         try
                         {
+                            var split = Database.LocalDatabase.SplitIntoPrefixAndName(path);
+
+                            long prefixid;
+                            if (string.Equals(prevprefix.Key, split.Key, StringComparison.Ordinal))
+                                prefixid = prevprefix.Value;
+                            else
+                            {
+                                prefixid = await database.GetOrCreatePathPrefix(split.Key);
+                                prevprefix = new KeyValuePair<string, long>(split.Key, prefixid);
+                            }
+
                             if (CHECKFILETIMEONLY || DISABLEFILETIMECHECK)
                             {
-                                var tmp = await database.GetFileLastModifiedAsync(path, lastfilesetid, false);
-                                await self.Output.WriteAsync(new FileEntry() {
+                                var tmp = await database.GetFileLastModifiedAsync(prefixid, split.Value, lastfilesetid, false);
+                                await self.Output.WriteAsync(new FileEntry
+                                {
                                     OldId = tmp.Item1,
                                     Path = path,
+                                    PathPrefixID = prefixid,
+                                    Filename = split.Value,
                                     Attributes = attributes,
                                     LastWrite = lastwrite,
                                     OldModified = tmp.Item2,
-                                    LastFileSize = tmp.Item3 ,
+                                    LastFileSize = tmp.Item3,
                                     OldMetaHash = null,
                                     OldMetaSize = -1
                                 });
                             }
                             else
                             {
-                                var res = await database.GetFileEntryAsync(path, lastfilesetid);
-                                await self.Output.WriteAsync(new FileEntry() {
+                                var res = await database.GetFileEntryAsync(prefixid, split.Value, lastfilesetid);
+                                await self.Output.WriteAsync(new FileEntry
+                                {
                                     OldId = res == null ? -1 : res.id,
                                     Path = path,
+                                    PathPrefixID = prefixid,
+                                    Filename = split.Value,
                                     Attributes = attributes,
                                     LastWrite = lastwrite,
                                     OldModified = res == null ? new DateTime(0) : res.modified,
@@ -128,9 +152,14 @@ namespace Duplicati.Library.Main.Operation.Backup
                                 });
                             }
                         }
-                        catch(Exception ex)
+                        catch (Exception ex)
                         {
-                            Logging.Log.WriteWarningMessage(FILELOGTAG, "ProcessingMetadataFailed", ex, "Failed to process entry, path: {0}", path);
+                            if (ex.IsRetiredException() || token.IsCancellationRequested)
+                            {
+                                continue;
+                            }
+                            Logging.Log.WriteWarningMessage(FILELOGTAG, "ProcessingMetadataFailed", ex,
+                                "Failed to process entry, path: {0}", path);
                         }
                     }
                 }
@@ -241,7 +270,7 @@ namespace Duplicati.Library.Main.Operation.Backup
         /// <param name="meta">The metadata ti record</param>
         private static async Task AddSymlinkToOutputAsync(string filename, DateTime lastModified, IMetahash meta, BackupDatabase database, IWriteChannel<StreamBlock> streamblockchannel)
         {
-            var metadataid = await AddMetadataToOutputAsync(filename, meta, database, streamblockchannel);
+            var metadataid = await AddMetadataToOutputAsync(filename, meta, database, streamblockchannel).ConfigureAwait(false);
             await database.AddSymlinkEntryAsync(filename, metadataid.Item2, lastModified);
         }
 

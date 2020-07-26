@@ -21,6 +21,9 @@ using Duplicati.Library.Utility;
 using System.Linq;
 using Duplicati.Library.Logging;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using Duplicati.Library.Common.IO;
 
 namespace Duplicati.UnitTest
 {
@@ -42,6 +45,30 @@ namespace Duplicati.UnitTest
                     opts["auth-password"] = File.ReadAllText(auth_password).Trim();
                 
                 return opts;
+            }
+        }
+
+        public static async Task GrowingFile(string testFile, CancellationToken token)
+        {
+            try
+            {
+                var str = new string('*', 50);
+                while (true)
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        continue;
+                    }
+                    File.AppendAllText(testFile, str);
+                    await Task.Delay(18, token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                if (File.Exists(testFile))
+                {
+                    File.Delete(testFile);
+                }
             }
         }
 
@@ -68,7 +95,7 @@ namespace Duplicati.UnitTest
         /// <param name="targetfolder">Destination directory path</param>
         public static void CopyDirectoryRecursive(string sourcefolder, string targetfolder)
         {
-            sourcefolder = Library.Utility.Utility.AppendDirSeparator(sourcefolder);
+            sourcefolder = Util.AppendDirSeparator(sourcefolder);
 
             var work = new Queue<string>();
             work.Enqueue(sourcefolder);
@@ -150,8 +177,8 @@ namespace Duplicati.UnitTest
         public static void VerifyDir(string f1, string f2, bool verifymetadata)
         {
             var anymissing = false;
-            f1 = Utility.AppendDirSeparator(f1);
-            f2 = Utility.AppendDirSeparator(f2);
+            f1 = Util.AppendDirSeparator(f1);
+            f2 = Util.AppendDirSeparator(f2);
 
             var folders1 = Utility.EnumerateFolders(f1);
             var folders2 = Utility.EnumerateFolders(f2).ToList();

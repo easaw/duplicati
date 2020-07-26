@@ -1,8 +1,10 @@
-using System;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using HttpServer.HttpModules;
 using System.Security.Cryptography.X509Certificates;
+using Duplicati.Library.Common.IO;
 
 namespace Duplicati.Server.WebServer
 {
@@ -74,14 +76,13 @@ namespace Duplicati.Server.WebServer
         /// <param name="options">A set of options</param>
         public Server(IDictionary<string, string> options)
         {
-            int port;
             string portstring;
             IEnumerable<int> ports = null;
             options.TryGetValue(OPTION_PORT, out portstring);
             if (!string.IsNullOrEmpty(portstring))
                 ports = 
                     from n in portstring.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                                where int.TryParse(n, out port)
+                                where int.TryParse(n, out _)
                                 select int.Parse(n);
 
             if (ports == null || !ports.Any())
@@ -248,9 +249,9 @@ namespace Duplicati.Server.WebServer
                 if (!string.IsNullOrWhiteSpace(userroot)
                     &&
                     (
-                        userroot.StartsWith(Library.Utility.Utility.AppendDirSeparator(System.Reflection.Assembly.GetExecutingAssembly().Location), Library.Utility.Utility.ClientFilenameStringComparison)
+                        userroot.StartsWith(Util.AppendDirSeparator(System.Reflection.Assembly.GetExecutingAssembly().Location), Library.Utility.Utility.ClientFilenameStringComparison)
                         ||
-                        userroot.StartsWith(Library.Utility.Utility.AppendDirSeparator(Program.StartupPath), Library.Utility.Utility.ClientFilenameStringComparison)
+                        userroot.StartsWith(Util.AppendDirSeparator(Program.StartupPath), Library.Utility.Utility.ClientFilenameStringComparison)
                     )
                 )
 #endif
@@ -352,7 +353,7 @@ namespace Duplicati.Server.WebServer
             /// <summary>
             /// The hostnames that are always allowed
             /// </summary>
-            private static string[] DEFAULT_ALLOWED = new string[] { "localhost", "127.0.0.1", "::1", "localhost.localdomain" };
+            private static readonly string[] DEFAULT_ALLOWED = new string[] { "localhost", "127.0.0.1", "::1", "localhost.localdomain" };
 
             /// <summary>
             /// Process the received request
@@ -398,11 +399,11 @@ namespace Duplicati.Server.WebServer
                 }
 
                 // Check the hostnames we always allow
-                if (Array.IndexOf(DEFAULT_ALLOWED, host) >= 0)
+                if (DEFAULT_ALLOWED.Contains(host, StringComparer.OrdinalIgnoreCase))
                     return false;
 
                 // Then the user specified ones
-                if (h != null && Array.IndexOf(h, host) >= 0)
+                if (h != null && h.Contains(host, StringComparer.OrdinalIgnoreCase))
                     return false;
 
                 // Disable checks if we have an asterisk

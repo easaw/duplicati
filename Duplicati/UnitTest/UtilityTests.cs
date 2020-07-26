@@ -15,15 +15,47 @@
 //  License along with this library; if not, write to the Free Software
 //  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 using Duplicati.Library.Utility;
+using Duplicati.Library.Common.IO;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Globalization;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Duplicati.UnitTest
 {
     public class UtilityTests
     {
+        [Test]
+        [Category("Utility")]
+        public static void AppendDirSeparator()
+        {
+            const string noTrailingSlash = @"/a\b/c";
+            string hasTrailingSlash = noTrailingSlash + Util.DirectorySeparatorString;
+
+            string alternateSeparator = null;
+            if (String.Equals(Util.DirectorySeparatorString, "/", StringComparison.Ordinal))
+            {
+                alternateSeparator = @"\";
+            }
+            if (String.Equals(Util.DirectorySeparatorString, @"\", StringComparison.Ordinal))
+            {
+                alternateSeparator = "/";
+            }
+
+            Assert.AreEqual(hasTrailingSlash, Util.AppendDirSeparator(noTrailingSlash));
+            Assert.AreEqual(hasTrailingSlash, Util.AppendDirSeparator(hasTrailingSlash));
+            Assert.AreEqual(hasTrailingSlash, Util.AppendDirSeparator(noTrailingSlash), Util.DirectorySeparatorString);
+            Assert.AreEqual(hasTrailingSlash, Util.AppendDirSeparator(hasTrailingSlash), Util.DirectorySeparatorString);
+
+            Assert.AreEqual(noTrailingSlash + alternateSeparator, Util.AppendDirSeparator(noTrailingSlash, alternateSeparator));
+            Assert.AreEqual(noTrailingSlash + alternateSeparator, Util.AppendDirSeparator(noTrailingSlash + alternateSeparator, alternateSeparator));
+            Assert.AreEqual(hasTrailingSlash + alternateSeparator, Util.AppendDirSeparator(hasTrailingSlash, alternateSeparator));
+        }
+
         [Test]
         [Category("Utility")]
         [TestCase("da-DK")]
@@ -62,6 +94,35 @@ namespace Duplicati.UnitTest
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture = originalCulture;
             }
+        }
+
+        [Test]
+        [Category("Utility")]
+        public static void ReadLimitLengthStreamWithGrowingFile()
+        {
+            var growingFilename = Path.GetTempFileName();
+            long fixedGrowingStreamLength, limitStreamLength, nextGrowingStreamLength;
+            using (CancellationTokenSource tokenSource = new CancellationTokenSource())
+            {
+                Task task = TestUtils.GrowingFile(growingFilename, tokenSource.Token);
+                Thread.Sleep(100);
+                using (FileStream growingStream = new FileStream(growingFilename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    Thread.Sleep(100);
+                    fixedGrowingStreamLength = growingStream.Length;
+                    Thread.Sleep(100);
+                    using (var limitStream = new ReadLimitLengthStream(growingStream, fixedGrowingStreamLength))
+                    {
+                        Thread.Sleep(100);
+                        nextGrowingStreamLength = growingStream.Length;
+                        limitStreamLength = limitStream.Length;
+                    }
+                }
+            }
+            Console.WriteLine($"fixedGrowingStreamLength:{fixedGrowingStreamLength} limitStreamLength:{limitStreamLength} nextGrowingStreamLength:{nextGrowingStreamLength}");
+            Assert.IsTrue(fixedGrowingStreamLength > 0);
+            Assert.AreEqual(fixedGrowingStreamLength, limitStreamLength);
+            Assert.IsTrue(limitStreamLength < nextGrowingStreamLength);
         }
 
         [Test]
@@ -141,6 +202,32 @@ namespace Duplicati.UnitTest
 
         [Test]
         [Category("Utility")]
+        public void NormalizeDateTime()
+        {
+            DateTime baseDateTime = new DateTime(2000, 1, 2, 3, 4, 5);
+            DateTime baseDateTimeUTC = baseDateTime.ToUniversalTime();
+            Assert.AreEqual(baseDateTimeUTC, Utility.NormalizeDateTime(baseDateTime.AddMilliseconds(1)));
+            Assert.AreEqual(baseDateTimeUTC, Utility.NormalizeDateTime(baseDateTime.AddMilliseconds(500)));
+            Assert.AreEqual(baseDateTimeUTC, Utility.NormalizeDateTime(baseDateTime.AddMilliseconds(999)));
+            Assert.AreEqual(baseDateTimeUTC.AddSeconds(-1), Utility.NormalizeDateTime(baseDateTime.AddMilliseconds(-1)));
+            Assert.AreEqual(baseDateTimeUTC.AddSeconds(1), Utility.NormalizeDateTime(baseDateTime.AddSeconds(1.9)));
+        }
+        
+        [Test]
+        [Category("Utility")]
+        public void NormalizeDateTimeToEpochSeconds()
+        {
+            DateTime baseDateTime = new DateTime(2000, 1, 2, 3, 4, 5);
+            long epochSeconds = (long) (baseDateTime.ToUniversalTime() - Utility.EPOCH).TotalSeconds;
+            Assert.AreEqual(epochSeconds, Utility.NormalizeDateTimeToEpochSeconds(baseDateTime.AddMilliseconds(1)));
+            Assert.AreEqual(epochSeconds, Utility.NormalizeDateTimeToEpochSeconds(baseDateTime.AddMilliseconds(500)));
+            Assert.AreEqual(epochSeconds, Utility.NormalizeDateTimeToEpochSeconds(baseDateTime.AddMilliseconds(999)));
+            Assert.AreEqual(epochSeconds - 1, Utility.NormalizeDateTimeToEpochSeconds(baseDateTime.AddMilliseconds(-1)));
+            Assert.AreEqual(epochSeconds + 1, Utility.NormalizeDateTimeToEpochSeconds(baseDateTime.AddSeconds(1.9)));
+        }
+        
+        [Test]
+        [Category("Utility")]
         public void ParseBool()
         {
             string[] expectTrue = { "1", "on", "true", "yes" };
@@ -154,7 +241,7 @@ namespace Duplicati.UnitTest
                 string message = $"{value} should be parsed to true.";
 
                 Assert.IsTrue(Utility.ParseBool(value, false), message);
-                Assert.IsTrue(Utility.ParseBool(value.ToUpper(), false), message);
+                Assert.IsTrue(Utility.ParseBool(value.ToUpper(CultureInfo.InvariantCulture), false), message);
                 Assert.IsTrue(Utility.ParseBool($" {value} ", false), message);
             }
 
@@ -163,7 +250,7 @@ namespace Duplicati.UnitTest
                 string message = $"{value} should be parsed to false.";
 
                 Assert.IsFalse(Utility.ParseBool(value, true), message);
-                Assert.IsFalse(Utility.ParseBool(value.ToUpper(), true), message);
+                Assert.IsFalse(Utility.ParseBool(value.ToUpper(CultureInfo.InvariantCulture), true), message);
                 Assert.IsFalse(Utility.ParseBool($" {value} ", true), message);
             }
 
@@ -173,6 +260,70 @@ namespace Duplicati.UnitTest
                 Assert.IsTrue(Utility.ParseBool(value, returnsTrue));
                 Assert.IsFalse(Utility.ParseBool(value, false));
                 Assert.IsFalse(Utility.ParseBool(value, returnsFalse));
+            }
+        }
+
+        [Test]
+        [Category("Utility")]
+        public static void ThrottledStreamRead()
+        {
+            byte[] sourceBuffer = {0x10, 0x20, 0x30, 0x40, 0x50};
+            byte[] destinationBuffer = new byte[sourceBuffer.Length + 1];
+            const int offset = 1;
+            const int bytesToRead = 3;
+
+            using (MemoryStream baseStream = new MemoryStream(sourceBuffer))
+            {
+                const int readSpeed = 1;
+                const int writeSpeed = 1;
+
+                ThrottledStream throttledStream = new ThrottledStream(baseStream, readSpeed, writeSpeed);
+                int bytesRead = throttledStream.Read(destinationBuffer, offset, bytesToRead);
+                Assert.AreEqual(bytesToRead, bytesRead);
+
+                for (int k = 0; k < destinationBuffer.Length; k++)
+                {
+                    if (offset <= k && k < offset + bytesToRead)
+                    {
+                        Assert.AreEqual(sourceBuffer[k - offset], destinationBuffer[k]);
+                    }
+                    else
+                    {
+                        Assert.AreEqual(default(byte), destinationBuffer[k]);
+                    }
+                }
+            }
+        }
+
+        [Test]
+        [Category("Utility")]
+        public static void ThrottledStreamWrite()
+        {
+            byte[] initialBuffer = {0x10, 0x20, 0x30, 0x40, 0x50};
+            byte[] source = {0x60, 0x70, 0x80, 0x90};
+            const int offset = 1;
+            const int bytesToWrite = 3;
+
+            using (MemoryStream baseStream = new MemoryStream(initialBuffer))
+            {
+                const int readSpeed = 1;
+                const int writeSpeed = 1;
+
+                ThrottledStream throttledStream = new ThrottledStream(baseStream, readSpeed, writeSpeed);
+                throttledStream.Write(source, offset, bytesToWrite);
+
+                byte[] result = baseStream.ToArray();
+                for (int k = 0; k < result.Length; k++)
+                {
+                    if (k < bytesToWrite)
+                    {
+                        Assert.AreEqual(source[offset + k], result[k]);
+                    }
+                    else
+                    {
+                        Assert.AreEqual(initialBuffer[k], result[k]);
+                    }
+                }
             }
         }
     }

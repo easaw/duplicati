@@ -37,7 +37,7 @@ namespace Duplicati.Library.Logging
         /// </summary>
         Profiling,
         /// <summary>
-        /// Messags that are normally not wanted for display
+        /// Messages that are normally not wanted for display
         /// </summary>
         Verbose,
         /// <summary>
@@ -53,7 +53,7 @@ namespace Duplicati.Library.Logging
         /// </summary>
         DryRun,
         /// <summary>
-        /// The message is a warning, meaning that later errors may be releated to this message
+        /// The message is a warning, meaning that later errors may be related to this message
         /// </summary>
         Warning,
         /// <summary>
@@ -123,7 +123,7 @@ namespace Duplicati.Library.Logging
             var items = new List<string>();
             items.Add("version=" + System.Uri.EscapeDataString(typeof(Log).Assembly.GetName().Version.ToString()));
             items.Add("cli=" + (fromCommandLine ? "t" : "f"));
-            // TOOD: Add OS type? mono version? install id? app-name?
+            // TODO: Add OS type? mono version? install id? app-name?
 
             return items;
         }
@@ -347,7 +347,7 @@ namespace Duplicati.Library.Logging
         {
             lock (m_lock)
             {
-                var scope = StartScope((ILogDestination)null, null, true);
+                var scope = StartScope(null, null, true);
                 if (detached)
                     DetachCurrentScope(scope);
                 return scope;

@@ -9,11 +9,17 @@ WC_DIR=wc
 TEMPLATE_DMG=template.dmg
 OUTPUT_DMG=Duplicati.dmg
 OUTPUT_PKG=Duplicati.pkg
-UNWANTED_FILES="AlphaVSS.Common.dll AlphaFS.dll AlphaFS.dll.config AlphaVSS.Common.dll.config appindicator-sharp.dll SQLite win-tools alphavss control_dir Duplicati.sqlite Duplicati-server.sqlite run-script-example.bat lvm-scripts Duplicati.debug.log SVGIcons"
+UNWANTED_FILES="appindicator-sharp.dll SQLite win-tools control_dir Duplicati.sqlite Duplicati-server.sqlite run-script-example.bat lvm-scripts Duplicati.debug.log SVGIcons storj_uplink.dll libstorj_uplink.so win-x64 win-x86"
 
-CODESIGN_IDENTITY=2S6R28R577
+# These are set via the macos-gatekeeper file
+CODESIGN_IDENTITY=
+NOTARIZE_USERNAME=
+NOTARIZE_PASSWORD=
+GATEKEEPER_SETTINGS_FILE="${HOME}/.config/signkeys/Duplicati/macos-gatekeeper"
 
-SHOW_USAGE_ERROR=
+if [ -f "${GATEKEEPER_SETTINGS_FILE}" ]; then
+    source "${GATEKEEPER_SETTINGS_FILE}"
+fi
 
 
 TEMPLATE_DMG_BZ2=$(echo "$TEMPLATE_DMG.bz2")
@@ -93,14 +99,17 @@ done
 # Install the LauncAgent if anyone needs it
 cp -R "daemon" "Duplicati.app/Contents/Resources"
 
-# Install executables
-cp "run-with-mono.sh" "Duplicati.app/Contents/MacOS/"
-cp "Duplicati-trayicon-launcher" "Duplicati.app/Contents/MacOS/duplicati"
-cp "Duplicati-commandline-launcher" "Duplicati.app/Contents/MacOS/duplicati-cli"
-cp "Duplicati-server-launcher" "Duplicati.app/Contents/MacOS/duplicati-server"
+# Build launchers
+cd "launchers"
+bash "compile.sh"
+cd ..
+
+# Install launchers
+mv "launchers/bin/duplicati" "Duplicati.app/Contents/MacOS/duplicati"
+mv "launchers/bin/duplicati-cli" "Duplicati.app/Contents/MacOS/duplicati-cli"
+mv "launchers/bin/duplicati-server" "Duplicati.app/Contents/MacOS/duplicati-server"
 cp "uninstall.sh" "Duplicati.app/Contents/MacOS/"
 
-chmod +x "Duplicati.app/Contents/MacOS/run-with-mono.sh"
 chmod +x "Duplicati.app/Contents/MacOS/duplicati"
 chmod +x "Duplicati.app/Contents/MacOS/duplicati-cli"
 chmod +x "Duplicati.app/Contents/MacOS/duplicati-server"
@@ -127,12 +136,12 @@ if [ "x${CODESIGN_IDENTITY}" != "x" ]; then
     find "Duplicati.app/Contents/Resources" -type f -print0 | xargs -0 codesign -s "${CODESIGN_IDENTITY}"
 
     # These files have dependencies, so we need to sign them in the correct order
-    for file in "duplicati-cli" "duplicati-server" "run-with-mono.sh" "uninstall.sh"; do
-        codesign -s "${CODESIGN_IDENTITY}" "Duplicati.app/Contents/MacOS/${file}"
+    for file in "duplicati-cli" "duplicati-server" "uninstall.sh"; do
+        codesign -f --options=runtime -s "${CODESIGN_IDENTITY}" "Duplicati.app/Contents/MacOS/${file}"
     done
 
     # Then sign the whole package
-    codesign -s "${CODESIGN_IDENTITY}" "Duplicati.app"
+    codesign -f --options=runtime -s "${CODESIGN_IDENTITY}" "Duplicati.app"
 else
     echo "No codesign identity supplied, skipping bundle signing"
 fi
@@ -220,10 +229,9 @@ rm -rf "$WC_DIR"
 
 if [ "x${CODESIGN_IDENTITY}" != "x" ]; then
     echo "Codesigning DMG image"
-    codesign -s "${CODESIGN_IDENTITY}" "${OUTPUT_DMG}"
+    codesign -f --options=runtime -s "${CODESIGN_IDENTITY}" "${OUTPUT_DMG}"
 else
     echo "No codesign identity supplied, skipping DMG signing"
 fi
-
 
 echo "Done, created ${OUTPUT_DMG}"
